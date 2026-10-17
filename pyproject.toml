@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muse-bridge"
+version = "0.1.0"
+description = "让本地 AI 智能体通过浏览器 DOM 桥命令云端 Muse（muse.ai）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "playwright>=1.40",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+mcp = []  # MCP stdio 协议为零依赖手写实现；如需 fastmcp 接入可在此扩展
+
+[tool.setuptools]
+packages = ["muse_bridge"]
