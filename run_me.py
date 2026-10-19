@@ -8,6 +8,7 @@ import sys, os, subprocess, json
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(BASE, 'src')
+PKG = os.path.join(SRC, 'muse_bridge')
 
 def _py():
     return sys.executable
@@ -16,14 +17,17 @@ def check():
     # cli.py 为脚本式模块，仅做语法检查（py_compile），避免 import 触发浏览器副作用
     mod_files = ['mcp_server.py', 'worker.py', 'accounts.py', 'cli.py']
     for m in mod_files:
-        f = os.path.join(SRC, m)
+        f = os.path.join(PKG, m)
         r = subprocess.run([_py(), '-m', 'py_compile', f], capture_output=True, text=True, encoding='utf-8')
         print('  py_compile %-24s %s' % (m, 'OK' if r.returncode == 0 else 'FAIL\n' + (r.stderr or '')[-500:]))
         if r.returncode != 0:
             return 1
+    env = dict(os.environ)
+    env['PYTHONPATH'] = SRC + os.pathsep + env.get('PYTHONPATH', '')
     p = subprocess.run([_py(), '-X', 'utf8', '-m', 'muse_bridge.mcp_server'],
                        input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}) + '\n',
-                       capture_output=True, text=True, encoding='utf-8', timeout=30)
+                       capture_output=True, text=True, encoding='utf-8', timeout=30,
+                       cwd=BASE, env=env)
     out = p.stdout.strip().splitlines()
     ok = any('"serverInfo"' in ln and 'muse-bridge' in ln for ln in out)
     print('  MCP initialize 握手 %s' % ('OK' if ok else 'FAIL: ' + (p.stdout + p.stderr)[-300:]))
