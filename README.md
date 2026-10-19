@@ -4,6 +4,8 @@
 
 > 公益开源项目。本项目不含 Muse 官方 API —— 走的是你自己的浏览器登录态（Playwright DOM），**仅用于操作你有权使用的自有账号**。使用前请阅读 `docs/DISCLAIMER.md`。
 
+设计取舍见 [DESIGN.md](DESIGN.md)，组件/数据结构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ## 它给谁用？怎么用？
 
 **面向的智能体**：任何支持 **MCP（Model Context Protocol）** 的本地 AI 智能体，最典型的是：
@@ -56,9 +58,9 @@ copy skills\muse-bridge\SKILL.md ~\.hermes\skills\muse-bridge\SKILL.md
 ## 快速开始
 
 ```powershell
-# 1) 安装依赖
-pip install -r requirements.txt
-python -m playwright install chromium
+# 0) 一键安装（venv + 依赖 + Chromium + 自检）
+python install.py
+#    不装浏览器：python install.py --skip-browser
 
 # 2) 登录一个 Muse 账号（一次性，生成 accounts/muse-default/auth.json）
 python -m muse_bridge.cli login
