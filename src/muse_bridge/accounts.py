@@ -31,6 +31,25 @@ REG = ACC_ROOT / "registry.json"
 CHROME = os.environ.get("MUSE_CHROME") or None
 LEGACY_PROFILE = str(BASE / "chrome-full")
 
+def _resolve(p):
+    """跨机迁移路径解析：相对路径以 BASE 展开；绝对路径若不存在（旧机器遗留），
+    按尾段 accounts/... 或 chrome-full 在 BASE 下重建——保证 registry 拷到哪台机器都可用。"""
+    if not p:
+        return p
+    q = Path(p)
+    if not q.is_absolute():
+        return str(BASE / q)
+    if q.exists():
+        return str(q)
+    parts = q.parts
+    for i, part in enumerate(parts):
+        low = str(part).lower()
+        if low == "accounts" and i + 1 < len(parts):
+            return str(BASE.joinpath(*parts[i:]))
+        if low == "chrome-full":
+            return str(BASE / "chrome-full")
+    return str(q)
+
 def load_reg():
     if REG.exists():
         return json.loads(REG.read_text(encoding="utf-8"))
@@ -62,9 +81,10 @@ def cmd_list(a):
     r = load_reg()
     out = []
     for aid, cfg in r["accounts"].items():
+        prof = _resolve(cfg.get("profile")); auth = _resolve(cfg.get("auth"))
         out.append({"id": aid, "label": cfg.get("label", ""), "default": aid == r.get("default"),
-                    "proxy": cfg.get("proxy"), "days_left": sess_days_left(cfg.get("auth", "")),
-                    "profile": cfg.get("profile"), "auth": cfg.get("auth")})
+                    "proxy": cfg.get("proxy"), "days_left": sess_days_left(auth or ""),
+                    "profile": prof, "auth": auth})
     print(json.dumps(out, ensure_ascii=False, indent=1))
 
 def cmd_add(a):
@@ -96,8 +116,8 @@ def cmd_rm(a):
 def cmd_export(a):
     r = load_reg()
     cfg = r["accounts"].get(a.id, {})
-    prof = cfg.get("profile") or (LEGACY_PROFILE if a.id == "muse-default" else None)
-    auth = cfg.get("auth") or str(ACC_ROOT / a.id / "auth.json")
+    prof = _resolve(cfg.get("profile")) or (LEGACY_PROFILE if a.id == "muse-main" or a.id == "muse-default" else None)
+    auth = _resolve(cfg.get("auth")) or str(ACC_ROOT / a.id / "auth.json")
     if not prof or not Path(prof).exists():
         print(json.dumps({"ok": False, "error": f"profile missing for {a.id}"})); return 1
     from playwright.sync_api import sync_playwright
@@ -108,6 +128,22 @@ def cmd_export(a):
         time.sleep(4)  # 让 SPA 把 localStorage 写全
         Path(auth).parent.mkdir(parents=True, exist_ok=True)
         ctx.storage_state(path=auth)
+        # 补全 expires：Playwright 把 session cookie 写成 0/-1，迁移后无法判有效期。
+        # 用 profile 实际 cookie（含 expires）回填到 storage_state 的 cookie 条目。
+        try:
+            real = {}
+            for c in ctx.cookies():
+                real[c["name"]] = c
+            sd = json.loads(Path(auth).read_text(encoding="utf-8"))
+            for c in sd.get("cookies", []):
+                rc = real.get(c["name"])
+                if rc and not c.get("expires"):
+                    exp = rc.get("expires") or 0
+                    if exp > 0:
+                        c["expires"] = exp
+            Path(auth).write_text(json.dumps(sd, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         ctx.close()
     print(json.dumps({"ok": True, "auth": auth, "days_left": sess_days_left(auth)}))
     return 0

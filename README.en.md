@@ -110,6 +110,39 @@ python run_me.py --check                # compile + MCP handshake self-check
 python tests/test_core.py              # 3/3 core tests
 ```
 
+## Credential Extraction & Auto Keepalive (multi-account)
+
+```bash
+# Log in once (visible browser, complete phone/OTP manually); credentials auto-extracted and registered
+python -m muse_bridge.cred_extract login muse-main
+
+# Credential summary / pure-credential validation (no profile; proves auth.json alone works = lossless migration)
+python -m muse_bridge.cred_extract list
+python -m muse_bridge.cred_extract verify muse-main
+
+# Keepalive: open muse.ai, confirm login, re-export auth.json (hatch_sess server-side sliding renewal)
+python -m muse_bridge.keepalive tick                 # all accounts
+# Hermes cron wired: muse-keepalive every 6h, silent unless dead (feeds error audit)
+```
+
+> Auto-fill note: Muse login has no password field (phone + OTP / Meta OAuth), so this tool
+> does **not** auto-bypass the wall; the correct path is one manual `login` + long-term sliding
+> `keepalive`. Memory measured: one tick peaks ~316MB, fully released after — no 24h residency.
+
+## Server Deployment (share credentials with local)
+
+```bash
+git clone https://github.com/Pulsatille/muse-bridge.git && cd muse-bridge
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium
+# Copy local accounts/<id>/auth.json to the same path on the server, then:
+PYTHONPATH=src MUSE_HOME=$PWD .venv/bin/python -m muse_bridge.cred_extract import muse-main
+PYTHONPATH=src MUSE_HOME=$PWD .venv/bin/python -m muse_bridge.worker status --account muse-main
+# Keepalive cron (every 6h): 0 */6 * * * cd <repo> && PYTHONPATH=src MUSE_HOME=<repo> .venv/bin/python -m muse_bridge.keepalive tick
+```
+
+Full steps in `docs/INSTALL.md`; cross-machine paths self-heal via registry `_resolve`.
+
 ## Roadmap
 
 > **Important note**: the following are **future plans with inherent uncertainty**. Whether and how they are implemented depends on the author's actual practice and time. **If anyone in the community implements any of these ahead of time, you are welcome to open a PR / fork and merge it directly** (first-come-first-served for the same goal). The author will not refuse on the grounds of "this is my plan".

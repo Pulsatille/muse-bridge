@@ -112,6 +112,39 @@ python run_me.py --check                # 编译 + MCP 握手自检
 python tests/test_core.py              # 3/3 核心测试
 ```
 
+## 凭证提取与自动保活（多账号管理）
+
+```bash
+# 登录一次（弹可见浏览器，人工完成手机号/验证码），检测登录后自动提取凭证并登记 registry
+python -m muse_bridge.cred_extract login muse-main
+
+# 凭证摘要 / 纯凭证有效性验证（不依赖 profile，验证 auth.json 单独可用=无损迁移）
+python -m muse_bridge.cred_extract list
+python -m muse_bridge.cred_extract verify muse-main
+
+# 保活：打开 muse.ai 确认登录态并重新导出 auth.json（hatch_sess 服务端滑动续期）
+python -m muse_bridge.keepalive tick                 # 全部账号
+# Hermes cron 已接入：muse-keepalive 每 6h 自动 tick，异常才输出（触发错误审计）
+```
+
+> 自动填写说明：Muse 登录页无密码字段（手机号+验证码/Meta OAuth），因此本工具
+> **不做**自动闯墙；正确路径是 `login` 人工一次 + `keepalive` 长期滑动保活。
+> 内存实测：一次 tick 峰值 ~316MB，跑完即释放，24h 无常驻。
+
+## 服务器部署（与本地共用凭证）
+
+```bash
+git clone https://github.com/Pulsatille/muse-bridge.git && cd muse-bridge
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium
+# 把本地 accounts/<id>/auth.json 拷到服务器同路径，然后导入：
+PYTHONPATH=src MUSE_HOME=$PWD .venv/bin/python -m muse_bridge.cred_extract import muse-main
+PYTHONPATH=src MUSE_HOME=$PWD .venv/bin/python -m muse_bridge.worker status --account muse-main
+# 保活 cron（每 6h）：0 */6 * * * cd <repo> && PYTHONPATH=src MUSE_HOME=<repo> .venv/bin/python -m muse_bridge.keepalive tick
+```
+
+完整步骤见 `docs/INSTALL.md`；跨机路径由 registry `_resolve` 自愈（绝对路径失效按尾段重建）。
+
 ## 未来更新计划（Roadmap）
 
 > **重要备注**：以下均为**未来计划，存在不确定性**，是否实现、以何种形态实现，取决于作者的实际实践与时间投入。**若社区中有任何人提前完成了其中某项，欢迎直接提交 PR / fork 后强行合并**（同一目标先到先得），作者不会以"这是我的计划"为由拒绝。
