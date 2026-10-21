@@ -145,6 +145,30 @@ keepalive.tick ──► 打开 profile → muse.ai → 确认 composer
 - 只读/写入范围限于 Muse 聊天页；不读取浏览器历史、书签、Cookie 以外的站点数据。
 - 安装器不执行远程脚本；只调用本机 `pip` 和 `playwright`。
 
+## 凭证池化与中转（credential pool）
+
+登录一遍 = 凭证进池，池即多账号调度中心，不再靠手工搬 auth.json：
+
+```
+ cred_extract login <id>           # 每号登录一次 → auth.json 入池（accounts/<id>/）
+        │
+        ├─ pool status             # 池视图：days_left / 连续失败 / 今日用量 / 可用? / 冷却?
+        ├─ pool next               # 选路：失败少 → 剩余天数多 → 最久未用（轮询感）
+        ├─ worker --account pool   # MCP/CLI 直接按池选号，emit 自动回报 ok/fail 进冷却
+        ├─ cred_bundle pack        # 全池 → 标准 tar.gz（manifest+registry+auth，带 sha256 校验）
+        │        └─ scp/上传 → 目标机 cred_bundle unpack [--verify]  # 一条命令装回整个池
+        └─ keepalive tick          # 池级保鲜：逐号滑动续期，dead 列表=需重登
+```
+
+**接口与状态**
+- `pool_state.json`（accounts/ 内）：`{id: {fails, last_fail, last_used, day:{date:n}}}`
+- 选路剔除：`auth 缺失` / `days_left < POOL_MIN_DAYS(3)` / `连续失败≥POOL_MAX_FAILS(2) 且冷却<POOL_COOLDOWN_S(3600s)`
+- 全不可用 → 回退 registry.default 并标记 `degraded:true`
+- `cred_bundle.py` 包格式：`manifest.json`（sha256/days_left/cookies）+ 路径相对化的 `registry.json` + `auth/<id>.json` + 可选 `profiles/<id>.tar.gz`；`unpack` 合并 registry，路径由 `_resolve` 按目标机 BASE 自愈
+
+**MCP 工具面**：`muse_pool`(status/next/use/reset) + `muse_cred`(pack/unpack/inspect)，
+与 send/poll/status 共 7 工具；`account:"pool"` 直接交给池调度。
+
 ## 双机共用（local + server 共享同一 Muse 会话）
 
 凭证是唯一真源，两台机器各持一份副本，互不干扰：

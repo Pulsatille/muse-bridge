@@ -12,8 +12,16 @@
 import sys, os, json, asyncio, subprocess
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(BASE)            # src/：子进程按包名 import muse_bridge.* 需要它在 PYTHONPATH
 WORKER = os.path.join(BASE, "worker.py")
 ACCOUNTS = os.path.join(BASE, "accounts.py")
+POOL = os.path.join(BASE, "pool.py")
+CRED_BUNDLE = os.path.join(BASE, "cred_bundle.py")
+
+def _env():
+    e = dict(os.environ)
+    e["PYTHONPATH"] = SRC + os.pathsep + e.get("PYTHONPATH", "")
+    return e
 
 def _pick_py():
     cand = [os.environ.get("MUSE_PY"),
@@ -42,7 +50,7 @@ def run(cmd_args, timeout=300):
     """cmd_args[0]=脚本路径, 其余=参数。统一 -X utf8 + JSON 行扫描。"""
     try:
         r = subprocess.run([PY, "-X", "utf8"] + cmd_args, capture_output=True, text=True,
-                           timeout=timeout, encoding="utf-8", errors="replace")
+                           timeout=timeout, encoding="utf-8", errors="replace", env=_env())
         out = (r.stdout or "").strip().splitlines()
         for ln in reversed(out):
             ln = ln.strip()
@@ -54,7 +62,7 @@ def run(cmd_args, timeout=300):
         return {"ok": False, "error": f"worker timeout {timeout}s"}
 
 ACC_PROP = {"account": {"type": "string",
-    "description": "账号 id（accounts/registry.json）。缺省=registry.default。示例: muse-default"}}
+    "description": "账号 id（accounts/registry.json）。缺省=registry.default；\"pool\"=自动选路（健康度最优、失败冷却避让）。示例: muse-default"}}
 
 TOOLS = [
     {"name": "muse_send",
@@ -80,6 +88,21 @@ TOOLS = [
      "description": "刷新账号的可移植认证包 accounts/<id>/auth.json（Playwright storage_state 格式）。拷走 auth.json 即可在任何装有本桥+Chromium 的机器 import 复现登录态——迁移单元。",
      "inputSchema": {"type": "object", "properties": {
          "account": ACC_PROP["account"]}}},
+    {"name": "muse_pool",
+     "description": "凭证池调度（中转站式多账号管理）。status=各号健康度(days_left/连续失败/今日用量/可用)；next=按策略选下一个账号(失败少→剩余天数多→最久未用)；use=回报某号本次结果(ok/fail，失败进冷却避让)；reset=清零失败计数(重登/保鲜后)。返回 JSON。",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["status", "next", "use", "reset"], "description": "池操作"},
+         "account": ACC_PROP["account"],
+         "result": {"type": "string", "enum": ["ok", "fail"], "description": "action=use 时的本次结果，缺省 ok"}},
+         "required": ["action"]}},
+    {"name": "muse_cred",
+     "description": "凭证包管理（跨机同步/备份）。pack=把账号凭证打包成标准 tar.gz（manifest+registry+auth，带 sha256）；unpack=在目标机加载凭证包并合并 registry（可 verify 纯凭证有效性）；inspect=只读查看包内容。auth.json 等同账号密码，包文件勿入 git、传输走可信通道。",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["pack", "unpack", "inspect"], "description": "凭证包操作"},
+         "path": {"type": "string", "description": "包文件路径（pack 输出 / unpack·inspect 输入）"},
+         "accounts": {"type": "string", "description": "action=pack 限定账号 id，逗号分隔；缺省全部"},
+         "verify": {"type": "boolean", "description": "action=unpack 时逐一纯凭证验证（推荐）"}},
+         "required": ["action", "path"]}},
 ]
 
 async def handle_stdio():
@@ -118,6 +141,22 @@ async def handle_stdio():
                 res = run([WORKER, "accounts"], timeout=60)
             elif name == "muse_export":
                 res = run([ACCOUNTS, "export", args.get("account") or "muse-default"], timeout=200)
+            elif name == "muse_pool":
+                act = args.get("action", "status")
+                pargs = [POOL, act]
+                if args.get("account"):
+                    pargs.append(args["account"])
+                if act == "use":
+                    pargs.append("--" + (args.get("result") or "ok"))
+                res = run(pargs, timeout=60)
+            elif name == "muse_cred":
+                act = args.get("action", "inspect")
+                cargs = [os.path.join(BASE, "cred_bundle.py"), act, args.get("path", "")]
+                if act == "pack" and args.get("accounts"):
+                    cargs += ["--accounts", args["accounts"]]
+                if act == "unpack" and args.get("verify"):
+                    cargs.append("--verify")
+                res = run(cargs, timeout=300)
             else:
                 res = {"ok": False, "error": f"unknown tool {name}"}
             respond(msg_id, {"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False)}],

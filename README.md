@@ -127,6 +127,29 @@ python -m muse_bridge.keepalive tick                 # 全部账号
 # Hermes cron 已接入：muse-keepalive 每 6h 自动 tick，异常才输出（触发错误审计）
 ```
 
+## 凭证池与多账号调度（中转站式）
+
+登录一遍 → 凭证入池 → 池做选路/同步，多账号像中转站一样管理：
+
+```bash
+# 池视图：各号 days_left / 连续失败 / 今日用量 / 可用 / 冷却
+python -m muse_bridge.pool status
+
+# 自动选路（失败少→剩余天数多→最久未用）；worker 直接按池选号
+python -m muse_bridge.pool next
+python -m muse_bridge.worker send "任务" --account pool
+
+# 全池凭证打包 → 拷到任意机器一条命令加载（sha256 校验 + 纯凭证验证）
+python -m muse_bridge.cred_bundle pack cred_pool.tar.gz
+python -m muse_bridge.cred_bundle inspect cred_pool.tar.gz
+python -m muse_bridge.cred_bundle unpack cred_pool.tar.gz --merge --verify
+
+# 重登/保鲜后清零失败计数
+python -m muse_bridge.pool reset muse-main
+```
+
+MCP 同样暴露 `muse_pool` / `muse_cred` 两个工具；`muse_send(account="pool")` 即池选号。
+
 > 自动填写说明：Muse 登录页无密码字段（手机号+验证码/Meta OAuth），因此本工具
 > **不做**自动闯墙；正确路径是 `login` 人工一次 + `keepalive` 长期滑动保活。
 > 内存实测：一次 tick 峰值 ~316MB，跑完即释放，24h 无常驻。

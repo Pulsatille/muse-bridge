@@ -18,7 +18,12 @@ CHROME = os.environ.get("MUSE_CHROME") or None
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
 
+_POOL_CTX = {"aid": None}
+
 def emit(obj):
+    # pool 选路时自动回报本次结果（成功清失败计数，失败进冷却避让）
+    if _POOL_CTX["aid"]:
+        pool_report(_POOL_CTX["aid"], bool(obj.get("ok")))
     print(json.dumps(obj, ensure_ascii=False))
     sys.exit(0 if obj.get("ok") else 1)
 
@@ -28,13 +33,44 @@ def load_reg():
     except Exception:
         return {}
 
+def _pool_mod():
+    """pool 模块健壮导入：既支持 `-m muse_bridge.worker`（包导入），
+    也支持被 mcp_server 以文件路径运行（sys.path[0]=本目录，直接 import pool）。"""
+    try:
+        from muse_bridge import pool
+        return pool
+    except Exception:
+        try:
+            import pool
+            return pool
+        except Exception:
+            return None
+
+
 def resolve_account(aid=None):
     reg = load_reg()
     aid = aid or os.environ.get("MUSE_ACCOUNT") or reg.get("default") or None
+    # account="pool" → 自动选路（中转站式：健康度最优账号，失败冷却避让）
+    if aid == "pool":
+        m = _pool_mod()
+        if m:
+            aid = m.pick().get("account") or reg.get("default")
+        else:
+            aid = reg.get("default")
     if aid and aid in reg.get("accounts", {}):
         cfg = reg["accounts"][aid]
         return aid, cfg.get("profile") or LEGACY_PROFILE, cfg.get("proxy"), cfg.get("auth")
     return aid, LEGACY_PROFILE, None, None
+
+
+def pool_report(aid, ok):
+    """上报本次使用结果给 pool。仅由 emit 在 _POOL_CTX 置位时调用（pool 选路场景）。"""
+    m = _pool_mod()
+    if m and aid:
+        try:
+            m.record(aid, ok)
+        except Exception:
+            pass
 
 def open_ctx(p, profile, proxy=None):
     kw = dict(user_data_dir=profile, executable_path=CHROME, headless=True,
@@ -155,6 +191,8 @@ def main():
         emit({"ok": True, "accounts": out, "current": aid})
 
     from playwright.sync_api import sync_playwright
+    if (a.account == "pool") or os.environ.get("MUSE_ACCOUNT") == "pool":
+        _POOL_CTX["aid"] = aid  # 后续 emit 自动把本次 ok/fail 回报给 pool
     with sync_playwright() as p:
         ctx = open_ctx(p, profile, proxy)
         try:
