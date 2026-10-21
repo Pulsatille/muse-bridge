@@ -55,8 +55,11 @@ def cmd_pack(a):
             sd = json.loads(raw.decode("utf-8"))
             cookies = sd.get("cookies", [])
             localst = sum(len(o.get("localStorage", [])) for o in sd.get("origins", []))
+            # 规范化存储（历史文件缩进/键序不一），校验和必须对**存入包的字节**计算，
+            # 否则 unpack 端对不上（跨机实测抓出的真 bug）。
+            blob = json.dumps(sd, ensure_ascii=False, indent=2).encode("utf-8")
             arc_auth = "auth/%s.json" % aid
-            _add(tf, arc_auth, json.dumps(sd, ensure_ascii=False, indent=2).encode("utf-8"))
+            _add(tf, arc_auth, blob)
             rel_auth = "accounts/%s/auth.json" % aid
             rel_prof = "accounts/%s/profile" % aid
             out_reg["accounts"][aid] = {"profile": rel_prof, "auth": rel_auth,
@@ -67,7 +70,7 @@ def cmd_pack(a):
                    "days_left": sess_days_left(apath),
                    "cookies": len(cookies),
                    "localStorage": localst,
-                   "auth_sha256": sha256_bytes(raw),
+                   "auth_sha256": sha256_bytes(blob),
                    "profile_bundled": False}
             if a.with_profiles:
                 prof = _resolve(cfg.get("profile"))
