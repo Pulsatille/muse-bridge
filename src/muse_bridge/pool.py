@@ -24,6 +24,22 @@ POOL_STATE = ACC_ROOT / "pool_state.json"
 MIN_DAYS = float(os.environ.get("POOL_MIN_DAYS", "3"))
 MAX_FAILS = int(os.environ.get("POOL_MAX_FAILS", "2"))
 COOLDOWN_S = int(os.environ.get("POOL_COOLDOWN_S", "3600"))  # 连续失败后的冷却
+ACTIVE_TTL = int(os.environ.get("POOL_ACTIVE_TTL", "1800"))  # 活跃号指针有效期（秒）
+
+
+def active_account():
+    """send 之后 poll/status 应沿用同一个号（否则跨号取不到刚发的回复）。"""
+    s = _load_state().get("_active", {})
+    if s.get("id") and (time.time() - s.get("at", 0)) < ACTIVE_TTL:
+        if profile_ready(s["id"]):
+            return s["id"]
+    return None
+
+
+def set_active(aid):
+    st = _load_state()
+    st["_active"] = {"id": aid, "at": time.time()}
+    _save_state(st)
 
 
 def _load_state():
@@ -42,6 +58,25 @@ def _today():
     return time.strftime("%Y-%m-%d")
 
 
+def profile_ready(aid):
+    """该号在本机是否有可用 profile（凭证包默认不带 profile，跨机需自愈）。"""
+    cfg = load_reg().get("accounts", {}).get(aid, {})
+    prof = _resolve(cfg.get("profile"))
+    return bool(prof and Path(prof).exists())
+
+
+def ensure_profile(aid):
+    """池自愈：profile 缺失但有 auth.json → 自动 import 灌入（跨机免手工）。"""
+    if profile_ready(aid):
+        return {"ok": True, "already": True}
+    try:
+        from muse_bridge.accounts import import_to_profile
+        res = import_to_profile(aid)
+        return {"ok": bool(res.get("composer")), "healed": True, "detail": res}
+    except Exception as e:
+        return {"ok": False, "healed": False, "error": str(e)[:160]}
+
+
 def pool_view():
     r = load_reg()
     st = _load_state()
@@ -54,22 +89,27 @@ def pool_view():
         fails = u.get("fails", 0)
         last_fail = u.get("last_fail", 0)
         cooling = fails >= MAX_FAILS and (time.time() - last_fail) < COOLDOWN_S
+        prof = _resolve(cfg.get("profile"))
+        pready = bool(prof and Path(prof).exists())
         usable = exists and d is not None and d >= MIN_DAYS and not cooling
         out.append({"id": aid, "label": cfg.get("label", ""), "default": aid == r.get("default"),
-                    "auth": bool(exists), "days_left": d, "fails": fails,
-                    "cooling": cooling, "usable": usable,
+                    "auth": bool(exists), "profile_ready": pready, "days_left": d,
+                    "fails": fails, "cooling": cooling, "usable": usable,
                     "last_used": u.get("last_used"), "today_uses": u.get("day", {}).get(_today(), 0)})
     return out, r.get("default")
 
 
 def pick():
     view, default = pool_view()
-    usable = [v for v in view if v["usable"]]
-    if not usable:
+    # 优先：可用且 profile 就绪；否则退回可用（调用方 ensure_profile 自愈）
+    ready = [v for v in view if v["usable"] and v["profile_ready"]]
+    cand = ready or [v for v in view if v["usable"]]
+    if not cand:
         return {"account": default, "degraded": True, "reason": "no usable account, fallback default"}
-    # 失败少 → 剩余天数多 → 最久未用（轮询）
-    usable.sort(key=lambda v: (v["fails"], -(v["days_left"] or 0), v.get("last_used") or 0))
-    return {"account": usable[0]["id"], "degraded": False, "reason": "pool best", "usable": len(usable)}
+    cand.sort(key=lambda v: (v["fails"], -(v["days_left"] or 0), v.get("last_used") or 0))
+    return {"account": cand[0]["id"], "degraded": False,
+            "reason": "pool best (ready)" if ready else "pool best (needs profile heal)",
+            "usable": len(cand)}
 
 
 def record(aid, ok):

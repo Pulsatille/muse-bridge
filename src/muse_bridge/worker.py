@@ -47,14 +47,24 @@ def _pool_mod():
             return None
 
 
-def resolve_account(aid=None):
+def resolve_account(aid=None, cmd="send"):
     reg = load_reg()
     aid = aid or os.environ.get("MUSE_ACCOUNT") or reg.get("default") or None
     # account="pool" → 自动选路（中转站式：健康度最优账号，失败冷却避让）
     if aid == "pool":
         m = _pool_mod()
         if m:
-            aid = m.pick().get("account") or reg.get("default")
+            # poll/status 粘住 send 选定的号（否则跨进程换号取不到刚发的回复）
+            if cmd in ("poll", "status"):
+                aid = m.active_account() or m.pick().get("account") or reg.get("default")
+            else:
+                aid = m.pick().get("account") or reg.get("default")
+            # 池自愈：选中的号若本机无 profile（凭证包默认不带），用 auth.json 自动灌入
+            try:
+                if hasattr(m, "ensure_profile") and not m.profile_ready(aid):
+                    m.ensure_profile(aid)
+            except Exception:
+                pass
         else:
             aid = reg.get("default")
     if aid and aid in reg.get("accounts", {}):
@@ -179,7 +189,7 @@ def main():
     ap.add_argument("--account", default=None)
     a = ap.parse_args()
 
-    aid, profile, proxy, auth = resolve_account(a.account)
+    aid, profile, proxy, auth = resolve_account(a.account, a.cmd)
 
     if a.cmd == "accounts":
         reg = load_reg()
@@ -193,6 +203,13 @@ def main():
     from playwright.sync_api import sync_playwright
     if (a.account == "pool") or os.environ.get("MUSE_ACCOUNT") == "pool":
         _POOL_CTX["aid"] = aid  # 后续 emit 自动把本次 ok/fail 回报给 pool
+        if a.cmd == "send":
+            m = _pool_mod()  # 锁定活跃号：同一次 send→poll 必须落在同一个账号上
+            if m:
+                try:
+                    m.set_active(aid)
+                except Exception:
+                    pass
     with sync_playwright() as p:
         ctx = open_ctx(p, profile, proxy)
         try:

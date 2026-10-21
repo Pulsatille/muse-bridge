@@ -149,44 +149,59 @@ def cmd_export(a):
     print(json.dumps({"ok": True, "auth": auth, "days_left": sess_days_left(auth)}))
     return 0
 
-def cmd_import(a):
-    """把认证包灌进 profile——新机器迁移的核心动作，免重新登录。"""
+def import_to_profile(aid, profile=None, auth=None):
+    """把认证包灌进 profile（可复用核心，供 CLI / 池自愈 / 迁移调用）。
+    返回 dict：{ok, account, profile, cookies, composer, days_left, error}"""
+    res = {"ok": False, "account": aid, "profile": None, "cookies": 0,
+           "composer": False, "days_left": None, "error": None}
     r = load_reg()
-    cfg = r["accounts"].get(a.id, {})
-    prof = a.profile or cfg.get("profile") or str(ACC_ROOT / a.id / "profile")
-    auth = a.auth or cfg.get("auth")
-    if not auth or not Path(auth).exists():
-        print(json.dumps({"ok": False, "error": f"auth package missing: {auth}"})); return 1
-    d = json.loads(Path(auth).read_text(encoding="utf-8"))
+    cfg = r["accounts"].get(aid, {})
+    prof = _resolve(profile or cfg.get("profile")) or str(ACC_ROOT / aid / "profile")
+    apath = _resolve(auth or cfg.get("auth"))
+    res["profile"] = prof
+    if not apath or not Path(apath).exists():
+        res["error"] = "auth package missing: %s" % apath
+        return res
+    d = json.loads(Path(apath).read_text(encoding="utf-8"))
     cookies = d.get("cookies", [])
     if not cookies:
-        print(json.dumps({"ok": False, "error": "auth package has no cookies"})); return 1
+        res["error"] = "auth package has no cookies"
+        return res
     from playwright.sync_api import sync_playwright
     Path(prof).mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
         ctx = _open(p, prof, cfg.get("proxy"))
-        ctx.add_cookies(cookies)
-        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        pg.goto("https://muse.ai", wait_until="domcontentloaded", timeout=60000)
-        box, tries = None, 0
-        while tries < 8:
-            box = pg.query_selector("textarea[placeholder*='消息']") or pg.query_selector("textarea")
-            if box: break
-            time.sleep(3); tries += 1
-        # localStorage 一并注入（origins 段）
         try:
-            for o in d.get("origins", []):
-                if o.get("origin", "").endswith("muse.ai"):
-                    pg.goto(o["origin"], wait_until="domcontentloaded", timeout=30000)
-                    for kv in o.get("localStorage", []):
-                        pg.evaluate("(kv)=>localStorage.setItem(kv.name, kv.value)", kv)
-        except Exception:
-            pass
-        ctx.close()  # cookies+storage 落盘进 profile
-    print(json.dumps({"ok": bool(box), "account": a.id, "profile": prof,
-                      "cookies": len(cookies), "composer": bool(box),
-                      "days_left": sess_days_left(auth)}))
-    return 0 if box else 1
+            ctx.add_cookies(cookies)
+            pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+            pg.goto("https://muse.ai", wait_until="domcontentloaded", timeout=60000)
+            box = None
+            for _ in range(8):
+                box = pg.query_selector("textarea[placeholder*='消息']") or pg.query_selector("textarea")
+                if box:
+                    break
+                time.sleep(3)
+            # localStorage 一并注入（origins 段）
+            try:
+                for o in d.get("origins", []):
+                    if o.get("origin", "").endswith("muse.ai"):
+                        pg.goto(o["origin"], wait_until="domcontentloaded", timeout=30000)
+                        for kv in o.get("localStorage", []):
+                            pg.evaluate("(kv)=>localStorage.setItem(kv.name, kv.value)", kv)
+            except Exception:
+                pass
+        finally:
+            ctx.close()  # cookies+storage 落盘进 profile
+    res.update({"ok": bool(box), "composer": bool(box), "cookies": len(cookies),
+                "days_left": sess_days_left(apath)})
+    return res
+
+
+def cmd_import(a):
+    """把认证包灌进 profile——新机器迁移的核心动作，免重新登录。"""
+    res = import_to_profile(a.id, a.profile, a.auth)
+    print(json.dumps(res, ensure_ascii=False))
+    return 0 if res["ok"] else 1
 
 def cmd_setproxy(a):
     r = load_reg()
