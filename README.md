@@ -38,7 +38,7 @@ python -m muse_bridge.accounts import muse-default --auth /path/to/auth.json
 #        cwd: "/path/to/muse-bridge/src"
 
 # 4) 验证
-hermes mcp test muse-bridge   # 应看到 5 个工具
+hermes mcp test muse-bridge   # 应看到 7 个工具
 ```
 
 **Hermes 技能文件**：仓库自带 `skills/muse-bridge/SKILL.md`，安装后 Hermes 会学会自己调用这些工具：
@@ -50,10 +50,10 @@ copy skills\muse-bridge\SKILL.md ~\.hermes\skills\muse-bridge\SKILL.md
 
 ## 特性
 
-- **MCP stdio 服务器**：`muse_send / muse_poll / muse_status / muse_accounts / muse_export` 五个工具，零第三方依赖
+- **MCP stdio 服务器**：`muse_send / muse_poll / muse_status / muse_accounts / muse_export / muse_pool / muse_cred` 七个工具，零第三方依赖
 - **浏览器 DOM 桥**：Playwright 持久上下文 + 真实登录态（`storage_state`），headless 注入 composer、校验输入框、唯一标记硬证送达
-- **多账号**：`registry.json` 集中管理（profile + 代理 + 可移植认证包），按号分散额度
-- **可迁移认证包**：`auth.json`（Playwright storage_state）拷走即可在另一台机器 import 复现登录态
+- **多账号凭证池**：`registry.json` 集中管理（profile + 代理 + 可移植认证包）；`muse_pool` 健康度评分 + 失败冷却自动选路，`account="pool"` 即调度
+- **可迁移认证包**：`auth.json`（Playwright storage_state）拷走即可在另一台机器 import 复现登录态；`muse_cred` 打包整池带 sha256 校验
 
 ## 快速开始
 

@@ -54,7 +54,7 @@ python -m muse_bridge.accounts list
 
 ## 二、MCP 工具（推荐给智能体使用）
 
-通过 `python -m muse_bridge.mcp_server` 启动 stdio MCP 服务器，暴露 5 个工具：
+通过 `python -m muse_bridge.mcp_server` 启动 stdio MCP 服务器，暴露 7 个工具：
 
 | 工具 | 参数 | 返回关键字段 | 用途 |
 |------|------|--------------|------|
@@ -63,13 +63,22 @@ python -m muse_bridge.accounts list
 | `muse_status` | `account`? | ok/logged_in/login_wall/days_left/proxy | 检查登录态与会话健康 |
 | `muse_accounts` | — | accounts[]（id/label/proxy/days_left/default） | 列出全部账号 |
 | `muse_export` | `account`? | ok/auth | 刷新可移植认证包 auth.json |
+| `muse_pool` | `action`(必填 status/next/use/reset), `account`?, `result`? | pool[]（days_left/fails/cooling/usable/today_uses）或 {account,reason} | 凭证池调度：健康度评分 + 自动选号 + 失败冷却避让 |
+| `muse_cred` | `action`(必填 pack/unpack/inspect), `path`(必填), `accounts`?, `verify`? | ok/loaded/accounts[]/rejected[]/verify[] | 凭证包跨机同步：打包(带 sha256)/加载/查看 |
+
+**`account` 取值**：具体账号 id ／ `pool`（自动选健康度最优号）。
 
 **智能体调用规范**：
-1. 需要 Muse 干活 → `muse_send(prompt="...", account="muse-main")`
-2. 等它回话 → `muse_poll(timeout_s=120, account="muse-main")`
-3. 事前检查账号可用 → `muse_status(account="muse-main")`
-4. 不确定用哪个号 → 先 `muse_accounts()` 看 default 与各号 days_left
-5. 认证快过期（days_left < 7）→ 提醒主人重新登录或 `muse_export` 保鲜
+1. 需要 Muse 干活 → `muse_send(prompt="...", account="pool")`（不指定号则池自动选路）
+2. 等它回话 → `muse_poll(timeout_s=120, account="pool")`
+   （池是**粘性会话**：send 锁定的号会写入 `_active` 指针，poll/status 自动沿用同一个号，
+   所以 send 与 poll 都用 `account="pool"` 即可，无需自己记账号）
+3. 事前检查可用号 → `muse_pool(action="status")` 看 usable/days_left/cooling
+4. 某号连续失败 2 次会进 1h 冷却自动避让；重登或保鲜后 → `muse_pool(action="reset", account=<id>)`
+5. 认证快过期（days_left < 7）→ 提醒主人重新登录，或 `muse_export` 保鲜
+6. 跨机同步整套凭证 → `muse_cred(action="pack", path="pool.tar.gz")`，
+   把文件传到目标机后 `muse_cred(action="unpack", path=..., verify=true)`
+   （profile 缺失时池会自愈：自动用 auth.json 灌入）
 
 ## 三、CLI 用法（不经 MCP 的快捷通道）
 

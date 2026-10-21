@@ -6,7 +6,7 @@ muse-bridge 把本地 AI 智能体接到**用户自己的 Muse 网页会话**上
 ## 目标
 
 - 任何 MCP 客户端（Hermes、Claude Code、Codex、Cursor 等）都能用
-  `muse_send / muse_poll / muse_status / muse_accounts / muse_export` 五个工具。
+  `muse_send / muse_poll / muse_status / muse_accounts / muse_export / muse_pool / muse_cred` 七个工具。
 - 一次安装、可迁移、可自检：`install.py` 建 venv、装依赖/Chromium、跑
   `run_me.py --check`。
 - 多账号隔离：每号独立 profile、独立代理、独立可移植 `auth.json`。

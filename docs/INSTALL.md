@@ -38,7 +38,7 @@ mcp_servers:
     cwd: "/path/to/muse-bridge/src"
 ```
 
-然后 `hermes mcp test muse-bridge` 应显示 5 个工具。
+然后 `hermes mcp test muse-bridge` 应显示 7 个工具。
 
 ## 代理（可选）
 

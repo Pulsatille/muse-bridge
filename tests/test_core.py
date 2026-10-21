@@ -15,7 +15,8 @@ _ENV['PYTHONPATH'] = SRC + os.pathsep + _ENV.get('PYTHONPATH', '')
 def test_tools_schema():
     from muse_bridge import mcp_server
     names = {t['name'] for t in mcp_server.TOOLS}
-    assert names == {'muse_send', 'muse_poll', 'muse_status', 'muse_accounts', 'muse_export'}
+    assert names == {'muse_send', 'muse_poll', 'muse_status', 'muse_accounts', 'muse_export',
+                     'muse_pool', 'muse_cred'}
     req = next(t for t in mcp_server.TOOLS if t['name'] == 'muse_send')
     assert 'prompt' in req['inputSchema']['required']
 

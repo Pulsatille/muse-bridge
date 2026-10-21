@@ -36,7 +36,7 @@ python -m muse_bridge.accounts import muse-default --auth /path/to/auth.json
 #        cwd: "/path/to/muse-bridge/src"
 
 # 4) Verify
-hermes mcp test muse-bridge   # should list 5 tools
+hermes mcp test muse-bridge   # should list 7 tools
 ```
 
 **Hermes skill file**: the repo ships `skills/muse-bridge/SKILL.md`. Install it and Hermes will learn to drive these tools by itself:
@@ -48,10 +48,10 @@ copy skills\muse-bridge\SKILL.md ~\.hermes\skills\muse-bridge\SKILL.md
 
 ## Features
 
-- **MCP stdio server**: 5 tools `muse_send / muse_poll / muse_status / muse_accounts / muse_export`, zero third-party deps
+- **MCP stdio server**: 7 tools `muse_send / muse_poll / muse_status / muse_accounts / muse_export / muse_pool / muse_cred`, zero third-party deps
 - **Browser DOM bridge**: Playwright persistent context + real login state (`storage_state`), headless composer injection, input validation, unique marker proving delivery
-- **Multi-account**: `registry.json` manages profiles + proxies + portable auth packages centrally; spread quota across accounts
-- **Portable auth package**: copy `auth.json` (Playwright storage_state) to another machine and `import` to reproduce the login state
+- **Multi-account credential pool**: `registry.json` centralizes profiles + proxies + portable auth packages; `muse_pool` scores health and auto-routes with fail-cooldown, `account="pool"` triggers dispatch
+- **Portable auth package**: copy `auth.json` (Playwright storage_state) to another machine and `import` to reproduce the login state; `muse_cred` packs the whole pool with sha256 checksums
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ python -m muse_bridge.accounts list
 ```
 muse-bridge/
 ├── src/muse_bridge/       # Core code
-│   ├── mcp_server.py      # MCP stdio server (5 tools)
+│   ├── mcp_server.py      # MCP stdio server (7 tools)
 │   ├── worker.py          # Playwright DOM worker (send/poll/status/accounts)
 │   ├── accounts.py        # Multi-account registry CLI
 │   └── cli.py             # Standalone CLI dispatcher
