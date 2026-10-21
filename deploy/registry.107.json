@@ -1,0 +1,12 @@
+{
+  "default": "muse-main",
+  "accounts": {
+    "muse-main": {
+      "profile": "accounts/muse-main/profile",
+      "auth": "accounts/muse-main/auth.json",
+      "proxy": null,
+      "label": "107 shared with local",
+      "quota_note": "same Muse account as local"
+    }
+  }
+}

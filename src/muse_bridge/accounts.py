@@ -116,35 +116,36 @@ def cmd_rm(a):
 def cmd_export(a):
     r = load_reg()
     cfg = r["accounts"].get(a.id, {})
-    prof = _resolve(cfg.get("profile")) or (LEGACY_PROFILE if a.id == "muse-main" or a.id == "muse-default" else None)
+    prof = _resolve(cfg.get("profile")) or (LEGACY_PROFILE if a.id in ("muse-main", "muse-default") else None)
     auth = _resolve(cfg.get("auth")) or str(ACC_ROOT / a.id / "auth.json")
     if not prof or not Path(prof).exists():
         print(json.dumps({"ok": False, "error": f"profile missing for {a.id}"})); return 1
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         ctx = _open(p, prof, cfg.get("proxy"))
-        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        pg.goto("https://muse.ai", wait_until="domcontentloaded", timeout=60000)
-        time.sleep(4)  # 让 SPA 把 localStorage 写全
-        Path(auth).parent.mkdir(parents=True, exist_ok=True)
-        ctx.storage_state(path=auth)
-        # 补全 expires：Playwright 把 session cookie 写成 0/-1，迁移后无法判有效期。
-        # 用 profile 实际 cookie（含 expires）回填到 storage_state 的 cookie 条目。
         try:
-            real = {}
-            for c in ctx.cookies():
-                real[c["name"]] = c
+            pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+            pg.goto("https://muse.ai", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(4)  # 让 SPA 把 localStorage 写全
+            Path(auth).parent.mkdir(parents=True, exist_ok=True)
+            # 先验再写：composer 未出现=会话已失效，此时 storage_state 导出的是登录墙空壳，
+            # 绝不覆盖旧 auth.json（防止把可用凭证洗成不可用）。
+            box = pg.query_selector("textarea[placeholder*='消息']") or pg.query_selector("textarea")
+            if not box:
+                print(json.dumps({"ok": False, "error": "login wall detected, auth.json NOT overwritten",
+                                  "auth": auth})); return 1
+            real = {c["name"]: c for c in ctx.cookies()}
+            ctx.storage_state(path=auth)
             sd = json.loads(Path(auth).read_text(encoding="utf-8"))
             for c in sd.get("cookies", []):
                 rc = real.get(c["name"])
-                if rc and not c.get("expires"):
+                if rc and (not c.get("expires") or c.get("expires", 0) <= 0):
                     exp = rc.get("expires") or 0
                     if exp > 0:
                         c["expires"] = exp
             Path(auth).write_text(json.dumps(sd, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-        ctx.close()
+        finally:
+            ctx.close()
     print(json.dumps({"ok": True, "auth": auth, "days_left": sess_days_left(auth)}))
     return 0
 

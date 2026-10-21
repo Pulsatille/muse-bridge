@@ -140,8 +140,31 @@ keepalive.tick ──► 打开 profile → muse.ai → 确认 composer
 
 - `auth.json` 等价于账号凭证；`accounts/` 与 `chrome-full/` 已在 `.gitignore`。
 - `cred_extract show` 默认对 cookie 值打码，`--secret` 才输出完整值（慎用）。
+- `accounts export` **先验再写**：打开 muse.ai 检测不到 composer 时拒绝导出，
+  绝不把登录墙空壳覆盖成可用凭证（实测防洗掉有效 auth）。
 - 只读/写入范围限于 Muse 聊天页；不读取浏览器历史、书签、Cookie 以外的站点数据。
 - 安装器不执行远程脚本；只调用本机 `pip` 和 `playwright`。
+
+## 双机共用（local + server 共享同一 Muse 会话）
+
+凭证是唯一真源，两台机器各持一份副本，互不干扰：
+
+```
+本地 (Windows)                          服务器 (Linux/107)
+ accounts/muse-main/auth.json  ──scp──► /opt/muse-bridge/accounts/muse-main/auth.json
+ cred_extract import → profile          accounts import → profile（一次性）
+ keepalive (Hermes cron 每6h)            keepalive (crontab 每6h，日志 keepalive.log)
+ worker send/poll                        worker send/poll
+```
+
+- **可行性依据**：Muse 登录态是 cookie(`hatch_sess`)+localStorage 的服务端会话，
+  同凭证多端并发读取不互踢；每端 `keepalive tick` 都会滑动续期（重复刷新无害）。
+- **服务器无需显示器**：`MUSE_CHROME` 指向 headless Chromium 即可（107 实测：
+  `python3 -m muse_bridge.worker send/poll` 端到端 `delivered:true` + `reply:"收到"`）。
+- **凭证轮换同步**：任一端 `cred_extract login` 重新登录产生新 auth.json 后，
+  应重新 scp 同步到另一端（旧副本仍有效，直到服务端轮换为止）。
+- **防封提示**：双端同时高频操作等于一个账号两路流量，建议错峰（本地白天、
+  服务器夜间任务）或按计划做地区切割（见 Roadmap）。
 
 ## 测试与发布
 
